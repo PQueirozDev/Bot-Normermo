@@ -1,0 +1,78 @@
+// Schema do banco de dados do Discord Security & Logging Bot.
+// SQLite por padrão — cada servidor (guild) tem uma linha independente de configurações.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model GuildSettings {
+  guildId String @id
+
+  // --- Boas-vindas (mensagem no canal) ---
+  welcomeEnabled Boolean @default(false)
+  welcomeChannel String?
+  welcomeMessage String? @default("👋 **Novo membro**\n\nBem-vindo, {user}!\nVocê é o membro número **{memberCount}** do servidor.")
+  welcomeUseEmbed Boolean @default(true)
+
+  // --- Saída (mensagem no canal) ---
+  leaveEnabled Boolean @default(false)
+  leaveChannel String?
+  leaveMessage String? @default("🚪 **Membro saiu**\n\n**{username}** saiu do servidor.")
+
+  // --- DM de boas-vindas ---
+  dmWelcomeEnabled Boolean @default(false)
+  dmWelcomeMessage String? @default("Olá, {username}! 👋\n\nBem-vindo ao {server}.\nLeia as regras antes de começar a conversar.")
+
+  // --- Canais de log ---
+  voiceLogChannel    String?
+  messageLogChannel  String?
+  memberLogChannel   String?
+  adminLogChannel    String?
+  securityLogChannel String?
+
+  // --- Anti-Spam ---
+  antiSpamEnabled     Boolean @default(false)
+  antiSpamMaxMessages Int     @default(8)
+  antiSpamIntervalMs  Int     @default(5000)
+  antiSpamAutoPunish  Boolean @default(false)
+
+  // --- Anti-Flood (mensagens repetidas) ---
+  antiFloodEnabled     Boolean @default(false)
+  antiFloodMaxRepeats  Int     @default(4)
+  antiFloodIntervalMs  Int     @default(15000)
+
+  // --- Conta recém-criada ---
+  accountAgeWarningEnabled Boolean @default(false)
+  accountAgeDays            Int     @default(7)
+
+  // --- Anti-Raid (entrada em massa) ---
+  antiRaidEnabled       Boolean @default(false)
+  antiRaidJoinThreshold Int     @default(10)
+  antiRaidIntervalMs    Int     @default(20000)
+
+  // --- Cargos autorizados a usar comandos administrativos (além de Administrator) ---
+  authorizedRoleIds String? // lista de IDs separados por vírgula
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  voiceSessions VoiceSession[]
+}
+
+// Sessão de voz ativa (para calcular tempo conectado e detectar troca de canal).
+model VoiceSession {
+  id        Int      @id @default(autoincrement())
+  guildId   String
+  userId    String
+  channelId String
+  joinedAt  DateTime @default(now())
+
+  guild GuildSettings @relation(fields: [guildId], references: [guildId], onDelete: Cascade)
+
+  @@unique([guildId, userId])
+}
