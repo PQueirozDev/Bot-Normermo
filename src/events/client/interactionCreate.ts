@@ -2,6 +2,8 @@ import {
   ActionRowBuilder,
   ButtonBuilder,
   ButtonStyle,
+  ChannelSelectMenuBuilder,
+  ChannelType,
   EmbedBuilder,
   Events,
   GuildMember,
@@ -9,6 +11,7 @@ import {
   MessageFlags,
   ModalBuilder,
   PermissionFlagsBits,
+  RoleSelectMenuBuilder,
   TextChannel,
   TextInputBuilder,
   TextInputStyle,
@@ -16,42 +19,411 @@ import {
 } from "discord.js";
 
 import { isAuthorized } from "../../utils/permissions";
+import {
+  getAuthorizedRoleIds,
+  getGuildSettings,
+  updateGuildSettings,
+} from "../../database/guildSettings";
+
+// ============================================================
+// HELPERS
+// ============================================================
+
+async function getMember(interaction: Interaction) {
+  if (!interaction.guild) return null;
+
+  if (interaction.member instanceof GuildMember) {
+    return interaction.member;
+  }
+
+  return interaction.guild.members
+    .fetch(interaction.user.id)
+    .catch(() => null);
+}
+
+async function checkAuthorized(interaction: Interaction) {
+  const member = await getMember(interaction);
+
+  if (!member) return false;
+
+  return isAuthorized(member);
+}
+
+function estado(valor: boolean) {
+  return valor ? "🟢 Ativado" : "🔴 Desativado";
+}
+
+function canal(id: string | null) {
+  return id ? `<#${id}>` : "Nao configurado";
+}
+
+// ============================================================
+// PAINEL CONFIGURACAO
+// ============================================================
+
+async function buildConfigPanel(guildId: string) {
+  const settings = await getGuildSettings(guildId);
+
+  const embed = new EmbedBuilder()
+    .setTitle("⚙️ Configuracao")
+    .setDescription(
+      "Configure os principais recursos do Bot-Normermo."
+    )
+    .addFields(
+      {
+        name: "👋 Boas-vindas",
+        value:
+          `${estado(settings.welcomeEnabled)}\n` +
+          `Canal: ${canal(settings.welcomeChannel)}`,
+        inline: true,
+      },
+      {
+        name: "🚪 Saida",
+        value:
+          `${estado(settings.leaveEnabled)}\n` +
+          `Canal: ${canal(settings.leaveChannel)}`,
+        inline: true,
+      },
+      {
+        name: "💌 DM de boas-vindas",
+        value: estado(settings.dmWelcomeEnabled),
+        inline: true,
+      },
+      {
+        name: "🎤 Logs de voz",
+        value: canal(settings.voiceLogChannel),
+        inline: true,
+      },
+      {
+        name: "💬 Logs de mensagens",
+        value: canal(settings.messageLogChannel),
+        inline: true,
+      },
+      {
+        name: "👥 Logs de membros",
+        value: canal(settings.memberLogChannel),
+        inline: true,
+      },
+      {
+        name: "🛠️ Logs administrativos",
+        value: canal(settings.adminLogChannel),
+        inline: true,
+      },
+      {
+        name: "🛡️ Logs de seguranca",
+        value: canal(settings.securityLogChannel),
+        inline: true,
+      }
+    )
+    .setFooter({
+      text: "As alteracoes sao salvas automaticamente.",
+    });
+
+  const row1 =
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("cmds_toggle_welcome")
+        .setLabel(
+          settings.welcomeEnabled
+            ? "Desativar boas-vindas"
+            : "Ativar boas-vindas"
+        )
+        .setEmoji("👋")
+        .setStyle(
+          settings.welcomeEnabled
+            ? ButtonStyle.Danger
+            : ButtonStyle.Success
+        ),
+
+      new ButtonBuilder()
+        .setCustomId("cmds_toggle_leave")
+        .setLabel(
+          settings.leaveEnabled
+            ? "Desativar saida"
+            : "Ativar saida"
+        )
+        .setEmoji("🚪")
+        .setStyle(
+          settings.leaveEnabled
+            ? ButtonStyle.Danger
+            : ButtonStyle.Success
+        ),
+
+      new ButtonBuilder()
+        .setCustomId("cmds_toggle_dm")
+        .setLabel(
+          settings.dmWelcomeEnabled
+            ? "Desativar DM"
+            : "Ativar DM"
+        )
+        .setEmoji("💌")
+        .setStyle(
+          settings.dmWelcomeEnabled
+            ? ButtonStyle.Danger
+            : ButtonStyle.Success
+        )
+    );
+
+  const row2 =
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("cmds_config_welcome_channel")
+        .setLabel("Canal boas-vindas")
+        .setStyle(ButtonStyle.Primary),
+
+      new ButtonBuilder()
+        .setCustomId("cmds_config_leave_channel")
+        .setLabel("Canal de saida")
+        .setStyle(ButtonStyle.Primary),
+
+      new ButtonBuilder()
+        .setCustomId("cmds_config_role")
+        .setLabel("Cargo autorizado")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+  const row3 =
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("cmds_logs")
+        .setLabel("Configurar logs")
+        .setEmoji("📋")
+        .setStyle(ButtonStyle.Secondary),
+
+      new ButtonBuilder()
+        .setCustomId("cmds_security")
+        .setLabel("Seguranca")
+        .setEmoji("🛡️")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+  return {
+    embeds: [embed],
+    components: [row1, row2, row3],
+  };
+}
+
+// ============================================================
+// PAINEL SEGURANCA
+// ============================================================
+
+async function buildSecurityPanel(guildId: string) {
+  const settings = await getGuildSettings(guildId);
+
+  const embed = new EmbedBuilder()
+    .setTitle("🛡️ Seguranca")
+    .setDescription(
+      "Ative ou desative as protecoes do servidor."
+    )
+    .addFields(
+      {
+        name: "Anti-Spam",
+        value:
+          `${estado(settings.antiSpamEnabled)}\n` +
+          `Limite: ${settings.antiSpamMaxMessages} mensagens / ` +
+          `${settings.antiSpamIntervalMs / 1000}s`,
+        inline: true,
+      },
+      {
+        name: "Anti-Flood",
+        value:
+          `${estado(settings.antiFloodEnabled)}\n` +
+          `Repeticoes: ${settings.antiFloodMaxRepeats}`,
+        inline: true,
+      },
+      {
+        name: "Anti-Raid",
+        value:
+          `${estado(settings.antiRaidEnabled)}\n` +
+          `Limite: ${settings.antiRaidJoinThreshold} entradas / ` +
+          `${settings.antiRaidIntervalMs / 1000}s`,
+        inline: true,
+      },
+      {
+        name: "Conta nova",
+        value:
+          `${estado(settings.accountAgeWarningEnabled)}\n` +
+          `Aviso abaixo de ${settings.accountAgeDays} dias`,
+        inline: true,
+      },
+      {
+        name: "Punicao automatica Anti-Spam",
+        value: estado(settings.antiSpamAutoPunish),
+        inline: true,
+      }
+    )
+    .setFooter({
+      text: "Clique nos botoes para alterar as protecoes.",
+    });
+
+  const row =
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("cmds_toggle_spam")
+        .setLabel("Anti-Spam")
+        .setStyle(
+          settings.antiSpamEnabled
+            ? ButtonStyle.Danger
+            : ButtonStyle.Success
+        ),
+
+      new ButtonBuilder()
+        .setCustomId("cmds_toggle_flood")
+        .setLabel("Anti-Flood")
+        .setStyle(
+          settings.antiFloodEnabled
+            ? ButtonStyle.Danger
+            : ButtonStyle.Success
+        ),
+
+      new ButtonBuilder()
+        .setCustomId("cmds_toggle_raid")
+        .setLabel("Anti-Raid")
+        .setStyle(
+          settings.antiRaidEnabled
+            ? ButtonStyle.Danger
+            : ButtonStyle.Success
+        ),
+
+      new ButtonBuilder()
+        .setCustomId("cmds_toggle_age")
+        .setLabel("Conta nova")
+        .setStyle(
+          settings.accountAgeWarningEnabled
+            ? ButtonStyle.Danger
+            : ButtonStyle.Success
+        ),
+
+      new ButtonBuilder()
+        .setCustomId("cmds_toggle_punish")
+        .setLabel("Auto Punish")
+        .setStyle(
+          settings.antiSpamAutoPunish
+            ? ButtonStyle.Danger
+            : ButtonStyle.Success
+        )
+    );
+
+  return {
+    embeds: [embed],
+    components: [row],
+  };
+}
+
+// ============================================================
+// PAINEL LOGS
+// ============================================================
+
+async function buildLogsPanel(guildId: string) {
+  const settings = await getGuildSettings(guildId);
+
+  const embed = new EmbedBuilder()
+    .setTitle("📋 Logs")
+    .setDescription(
+      "Escolha qual categoria deseja configurar."
+    )
+    .addFields(
+      {
+        name: "🎤 Voz",
+        value: canal(settings.voiceLogChannel),
+        inline: true,
+      },
+      {
+        name: "💬 Mensagens",
+        value: canal(settings.messageLogChannel),
+        inline: true,
+      },
+      {
+        name: "👥 Membros",
+        value: canal(settings.memberLogChannel),
+        inline: true,
+      },
+      {
+        name: "🛠️ Administracao",
+        value: canal(settings.adminLogChannel),
+        inline: true,
+      },
+      {
+        name: "🛡️ Seguranca",
+        value: canal(settings.securityLogChannel),
+        inline: true,
+      }
+    );
+
+  const row =
+    new ActionRowBuilder<ButtonBuilder>().addComponents(
+      new ButtonBuilder()
+        .setCustomId("cmds_log_voice")
+        .setLabel("Voz")
+        .setEmoji("🎤")
+        .setStyle(ButtonStyle.Secondary),
+
+      new ButtonBuilder()
+        .setCustomId("cmds_log_message")
+        .setLabel("Mensagens")
+        .setEmoji("💬")
+        .setStyle(ButtonStyle.Secondary),
+
+      new ButtonBuilder()
+        .setCustomId("cmds_log_member")
+        .setLabel("Membros")
+        .setEmoji("👥")
+        .setStyle(ButtonStyle.Secondary),
+
+      new ButtonBuilder()
+        .setCustomId("cmds_log_admin")
+        .setLabel("Administracao")
+        .setEmoji("🛠️")
+        .setStyle(ButtonStyle.Secondary),
+
+      new ButtonBuilder()
+        .setCustomId("cmds_log_security")
+        .setLabel("Seguranca")
+        .setEmoji("🛡️")
+        .setStyle(ButtonStyle.Secondary)
+    );
+
+  return {
+    embeds: [embed],
+    components: [row],
+  };
+}
+
+// ============================================================
+// EVENTO
+// ============================================================
 
 export default {
   name: Events.InteractionCreate,
 
   async execute(interaction: Interaction) {
-    // =========================================================
+    // ========================================================
     // SLASH COMMANDS
-    // =========================================================
+    // ========================================================
 
     if (interaction.isChatInputCommand()) {
       if (!interaction.guild) {
         await interaction.reply({
-          content: "Este bot so funciona dentro de servidores.",
+          content:
+            "Este bot so funciona dentro de servidores.",
           flags: MessageFlags.Ephemeral,
         });
         return;
       }
 
-      const command = interaction.client.commands.get(
-        interaction.commandName
-      );
+      const command =
+        interaction.client.commands.get(
+          interaction.commandName
+        );
 
       if (!command) return;
 
       if (command.adminOnly) {
-        let member = interaction.member;
-
-        if (!(member instanceof GuildMember)) {
-          member = await interaction.guild.members
-            .fetch(interaction.user.id)
-            .catch(() => null);
-        }
+        const member = await getMember(interaction);
 
         if (
           !member ||
-          !(await isAuthorized(member as GuildMember))
+          !(await isAuthorized(member))
         ) {
           await interaction.reply({
             content:
@@ -66,11 +438,14 @@ export default {
         await command.execute(interaction);
       } catch (error) {
         console.error(
-          `[interactionCreate] Erro ao executar /${interaction.commandName}:`,
+          `[interactionCreate] Erro em /${interaction.commandName}:`,
           error
         );
 
-        if (interaction.replied || interaction.deferred) {
+        if (
+          interaction.replied ||
+          interaction.deferred
+        ) {
           await interaction.followUp({
             content:
               "Ocorreu um erro ao executar este comando.",
@@ -88,47 +463,42 @@ export default {
       return;
     }
 
-    // =========================================================
-    // SELETOR DE USUARIO - VER AVATAR
-    // =========================================================
+    // ========================================================
+    // SELETOR DE AVATAR
+    // ========================================================
 
     if (
       interaction.isUserSelectMenu() &&
-      interaction.customId === "cmds_avatar_select"
+      interaction.customId ===
+        "cmds_avatar_select"
     ) {
       const user = interaction.users.first();
 
-      if (!user) {
-        await interaction.reply({
-          content: "Nao foi possivel encontrar esse usuario.",
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
+      if (!user) return;
 
-      const avatarUrl = user.displayAvatarURL({
-        extension: "png",
-        size: 4096,
-      });
+      const avatarUrl =
+        user.displayAvatarURL({
+          extension: "png",
+          size: 4096,
+        });
 
       const embed = new EmbedBuilder()
         .setTitle(`Avatar de ${user.username}`)
         .setDescription(
-          [
-            `**Usuario:** <@${user.id}>`,
-            `**Username:** ${user.username}`,
-            `**ID:** ${user.id}`,
-          ].join("\n")
+          `**Usuario:** <@${user.id}>\n` +
+          `**Username:** ${user.username}\n` +
+          `**ID:** ${user.id}`
         )
         .setImage(avatarUrl);
 
       const row =
-        new ActionRowBuilder<ButtonBuilder>().addComponents(
-          new ButtonBuilder()
-            .setLabel("Abrir avatar original")
-            .setStyle(ButtonStyle.Link)
-            .setURL(avatarUrl)
-        );
+        new ActionRowBuilder<ButtonBuilder>()
+          .addComponents(
+            new ButtonBuilder()
+              .setLabel("Abrir avatar original")
+              .setStyle(ButtonStyle.Link)
+              .setURL(avatarUrl)
+          );
 
       await interaction.update({
         content: "",
@@ -139,29 +509,168 @@ export default {
       return;
     }
 
-    // =========================================================
-    // MODAL - LIMPAR MENSAGENS
-    // =========================================================
+    // ========================================================
+    // SELECAO DE CANAL
+    // ========================================================
 
     if (
-      interaction.isModalSubmit() &&
-      interaction.customId === "cmds_clear_modal"
+      interaction.isChannelSelectMenu() &&
+      interaction.customId.startsWith(
+        "cmds_channel_"
+      )
     ) {
-      if (!interaction.guild || !interaction.channel) {
+      if (
+        !interaction.guild ||
+        !(await checkAuthorized(interaction))
+      ) {
         await interaction.reply({
-          content:
-            "Este recurso so funciona dentro de um servidor.",
+          content: "Sem permissao.",
           flags: MessageFlags.Ephemeral,
         });
         return;
       }
 
+      const channelId =
+        interaction.values[0];
+
+      const type =
+        interaction.customId.replace(
+          "cmds_channel_",
+          ""
+        );
+
+      switch (type) {
+        case "welcome":
+          await updateGuildSettings(
+            interaction.guild.id,
+            { welcomeChannel: channelId }
+          );
+          break;
+
+        case "leave":
+          await updateGuildSettings(
+            interaction.guild.id,
+            { leaveChannel: channelId }
+          );
+          break;
+
+        case "voice":
+          await updateGuildSettings(
+            interaction.guild.id,
+            { voiceLogChannel: channelId }
+          );
+          break;
+
+        case "message":
+          await updateGuildSettings(
+            interaction.guild.id,
+            { messageLogChannel: channelId }
+          );
+          break;
+
+        case "member":
+          await updateGuildSettings(
+            interaction.guild.id,
+            { memberLogChannel: channelId }
+          );
+          break;
+
+        case "admin":
+          await updateGuildSettings(
+            interaction.guild.id,
+            { adminLogChannel: channelId }
+          );
+          break;
+
+        case "security":
+          await updateGuildSettings(
+            interaction.guild.id,
+            { securityLogChannel: channelId }
+          );
+          break;
+
+        default:
+          return;
+      }
+
+      await interaction.update({
+        content:
+          `✅ Canal configurado: <#${channelId}>`,
+        components: [],
+      });
+
+      return;
+    }
+
+    // ========================================================
+    // SELECAO DE CARGO AUTORIZADO
+    // ========================================================
+
+    if (
+      interaction.isRoleSelectMenu() &&
+      interaction.customId ===
+        "cmds_role_authorized"
+    ) {
+      if (
+        !interaction.guild ||
+        !(await checkAuthorized(interaction))
+      ) {
+        await interaction.reply({
+          content: "Sem permissao.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      const roleId = interaction.values[0];
+
+      const settings =
+        await getGuildSettings(
+          interaction.guild.id
+        );
+
+      const roles =
+        getAuthorizedRoleIds(settings);
+
+      if (!roles.includes(roleId)) {
+        roles.push(roleId);
+      }
+
+      await updateGuildSettings(
+        interaction.guild.id,
+        {
+          authorizedRoleIds:
+            roles.join(","),
+        }
+      );
+
+      await interaction.update({
+        content:
+          `✅ Cargo <@&${roleId}> autorizado.`,
+        components: [],
+      });
+
+      return;
+    }
+
+    // ========================================================
+    // MODAL CLEAR
+    // ========================================================
+
+    if (
+      interaction.isModalSubmit() &&
+      interaction.customId ===
+        "cmds_clear_modal"
+    ) {
+      if (
+        !interaction.guild ||
+        !interaction.channel
+      ) {
+        return;
+      }
+
       const member =
-        interaction.member instanceof GuildMember
-          ? interaction.member
-          : await interaction.guild.members
-              .fetch(interaction.user.id)
-              .catch(() => null);
+        await getMember(interaction);
 
       if (
         !member ||
@@ -171,52 +680,59 @@ export default {
       ) {
         await interaction.reply({
           content:
-            "Voce precisa da permissao Gerenciar Mensagens para usar esta ferramenta.",
+            "Voce precisa da permissao Gerenciar Mensagens.",
           flags: MessageFlags.Ephemeral,
         });
         return;
       }
 
-      const quantidadeTexto =
+      const value =
         interaction.fields
-          .getTextInputValue("cmds_clear_amount")
+          .getTextInputValue(
+            "cmds_clear_amount"
+          )
           .trim();
 
-      const quantidade = Number(quantidadeTexto);
+      const amount = Number(value);
 
       if (
-        !Number.isInteger(quantidade) ||
-        quantidade < 1 ||
-        quantidade > 100
+        !Number.isInteger(amount) ||
+        amount < 1 ||
+        amount > 100
       ) {
         await interaction.reply({
           content:
-            "Digite uma quantidade valida entre 1 e 100.",
+            "Digite um numero entre 1 e 100.",
           flags: MessageFlags.Ephemeral,
         });
         return;
       }
-
-      if (!(interaction.channel instanceof TextChannel)) {
-        await interaction.reply({
-          content:
-            "A limpeza so pode ser usada em um canal de texto.",
-          flags: MessageFlags.Ephemeral,
-        });
-        return;
-      }
-
-      const botMember = interaction.guild.members.me;
 
       if (
-        !botMember ||
-        !botMember
+        !(interaction.channel instanceof TextChannel)
+      ) {
+        await interaction.reply({
+          content:
+            "Use esta ferramenta em um canal de texto.",
+          flags: MessageFlags.Ephemeral,
+        });
+        return;
+      }
+
+      const bot =
+        interaction.guild.members.me;
+
+      if (
+        !bot ||
+        !bot
           .permissionsIn(interaction.channel)
-          .has(PermissionFlagsBits.ManageMessages)
+          .has(
+            PermissionFlagsBits.ManageMessages
+          )
       ) {
         await interaction.reply({
           content:
-            "Eu preciso da permissao Gerenciar Mensagens neste canal.",
+            "Eu nao tenho permissao para gerenciar mensagens neste canal.",
           flags: MessageFlags.Ephemeral,
         });
         return;
@@ -226,240 +742,498 @@ export default {
         flags: MessageFlags.Ephemeral,
       });
 
-      try {
-        const deleted =
-          await interaction.channel.bulkDelete(
-            quantidade,
-            true
-          );
-
-        let resposta =
-          `${deleted.size} mensagem(ns) foram apagadas.`;
-
-        if (deleted.size < quantidade) {
-          resposta +=
-            "\nAlgumas mensagens podem ter mais de 14 dias e nao podem ser apagadas em massa pelo Discord.";
-        }
-
-        await interaction.editReply(resposta);
-      } catch (error) {
-        console.error(
-          "[cmds_clear] Erro ao apagar mensagens:",
-          error
+      const deleted =
+        await interaction.channel.bulkDelete(
+          amount,
+          true
         );
 
-        await interaction.editReply(
-          "Nao consegui apagar as mensagens. Verifique minhas permissoes neste canal."
-        );
+      let response =
+        `🧹 ${deleted.size} mensagem(ns) apagadas.`;
+
+      if (deleted.size < amount) {
+        response +=
+          "\nAlgumas mensagens tinham mais de 14 dias.";
       }
+
+      await interaction.editReply(response);
 
       return;
     }
 
-    // =========================================================
-    // BOTOES DO PAINEL
-    // =========================================================
+    // ========================================================
+    // BOTOES
+    // ========================================================
 
     if (!interaction.isButton()) return;
 
-    if (!interaction.guild) {
-      await interaction.reply({
-        content:
-          "Este painel so funciona dentro de servidores.",
-        flags: MessageFlags.Ephemeral,
-      });
-      return;
-    }
-
-    // Ignora botoes pertencentes a outros sistemas do bot.
-    if (!interaction.customId.startsWith("cmds_")) {
+    if (
+      !interaction.guild ||
+      !interaction.customId.startsWith(
+        "cmds_"
+      )
+    ) {
       return;
     }
 
     try {
-      // =======================================================
-      // CONFIGURACAO
-      // =======================================================
+      const id = interaction.customId;
 
-      if (interaction.customId === "cmds_config") {
-        const member =
-          interaction.member instanceof GuildMember
-            ? interaction.member
-            : await interaction.guild.members
-                .fetch(interaction.user.id)
-                .catch(() => null);
+      // ------------------------------------------------------
+      // CONFIG
+      // ------------------------------------------------------
 
+      if (id === "cmds_config") {
         if (
-          !member ||
-          !(await isAuthorized(member))
+          !(await checkAuthorized(interaction))
         ) {
           await interaction.reply({
-            content:
-              "Voce nao tem permissao para acessar as configuracoes.",
+            content: "🚫 Sem permissao.",
             flags: MessageFlags.Ephemeral,
           });
           return;
         }
 
-        const embed = new EmbedBuilder()
-          .setTitle("Configuracao")
-          .setDescription(
-            [
-              "Area de configuracao do Bot-Normermo.",
-              "",
-              "Recursos:",
-              "",
-              "- Boas-vindas",
-              "- Saida de membros",
-              "- DM de boas-vindas",
-              "- Logs de voz",
-              "- Logs de mensagens",
-              "- Logs de membros",
-              "- Logs administrativos",
-              "- Logs de seguranca",
-              "- Cargo autorizado",
-              "",
-              "Os controles individuais serao adicionados ao painel.",
-            ].join("\n")
+        const panel =
+          await buildConfigPanel(
+            interaction.guild.id
           );
 
         await interaction.reply({
-          embeds: [embed],
+          ...panel,
           flags: MessageFlags.Ephemeral,
         });
 
         return;
       }
 
-      // =======================================================
-      // SEGURANCA
-      // =======================================================
+      // ------------------------------------------------------
+      // TOGGLES CONFIG
+      // ------------------------------------------------------
 
-      if (interaction.customId === "cmds_security") {
-        const member =
-          interaction.member instanceof GuildMember
-            ? interaction.member
-            : await interaction.guild.members
-                .fetch(interaction.user.id)
-                .catch(() => null);
-
+      if (
+        [
+          "cmds_toggle_welcome",
+          "cmds_toggle_leave",
+          "cmds_toggle_dm",
+        ].includes(id)
+      ) {
         if (
-          !member ||
-          !(await isAuthorized(member))
+          !(await checkAuthorized(interaction))
         ) {
           await interaction.reply({
-            content:
-              "Voce nao tem permissao para acessar a seguranca.",
+            content: "🚫 Sem permissao.",
             flags: MessageFlags.Ephemeral,
           });
           return;
         }
 
-        const embed = new EmbedBuilder()
-          .setTitle("Seguranca")
-          .setDescription(
-            [
-              "Central de seguranca do servidor.",
-              "",
-              "Protecoes disponiveis:",
-              "",
-              "- Anti-Spam",
-              "- Anti-Flood",
-              "- Anti-Raid",
-              "- Verificacao de idade da conta",
-              "",
-              "Os controles individuais serao adicionados ao painel.",
-            ].join("\n")
+        const settings =
+          await getGuildSettings(
+            interaction.guild.id
           );
-
-        await interaction.reply({
-          embeds: [embed],
-          flags: MessageFlags.Ephemeral,
-        });
-
-        return;
-      }
-
-      // =======================================================
-      // LOGS
-      // =======================================================
-
-      if (interaction.customId === "cmds_logs") {
-        const member =
-          interaction.member instanceof GuildMember
-            ? interaction.member
-            : await interaction.guild.members
-                .fetch(interaction.user.id)
-                .catch(() => null);
 
         if (
-          !member ||
-          !(await isAuthorized(member))
+          id === "cmds_toggle_welcome"
         ) {
-          await interaction.reply({
-            content:
-              "Voce nao tem permissao para acessar os logs.",
-            flags: MessageFlags.Ephemeral,
-          });
-          return;
-        }
-
-        const embed = new EmbedBuilder()
-          .setTitle("Logs")
-          .setDescription(
-            [
-              "Gerenciamento dos registros do servidor.",
-              "",
-              "Categorias:",
-              "",
-              "- Voz",
-              "- Mensagens",
-              "- Membros",
-              "- Administracao",
-              "- Seguranca",
-            ].join("\n")
-          );
-
-        await interaction.reply({
-          embeds: [embed],
-          flags: MessageFlags.Ephemeral,
-        });
-
-        return;
-      }
-
-      // =======================================================
-      // STATUS
-      // =======================================================
-
-      if (interaction.customId === "cmds_status") {
-        const ping = interaction.client.ws.ping;
-
-        const embed = new EmbedBuilder()
-          .setTitle("Status do Bot-Normermo")
-          .addFields(
+          await updateGuildSettings(
+            interaction.guild.id,
             {
-              name: "Status",
-              value: "Online",
-              inline: true,
-            },
-            {
-              name: "Ping",
-              value: `${ping}ms`,
-              inline: true,
-            },
-            {
-              name: "Servidor",
-              value: interaction.guild.name,
-              inline: true,
-            },
-            {
-              name: "Membros",
-              value: `${interaction.guild.memberCount}`,
-              inline: true,
+              welcomeEnabled:
+                !settings.welcomeEnabled,
             }
-          )
-          .setTimestamp();
+          );
+        }
+
+        if (
+          id === "cmds_toggle_leave"
+        ) {
+          await updateGuildSettings(
+            interaction.guild.id,
+            {
+              leaveEnabled:
+                !settings.leaveEnabled,
+            }
+          );
+        }
+
+        if (
+          id === "cmds_toggle_dm"
+        ) {
+          await updateGuildSettings(
+            interaction.guild.id,
+            {
+              dmWelcomeEnabled:
+                !settings.dmWelcomeEnabled,
+            }
+          );
+        }
+
+        const panel =
+          await buildConfigPanel(
+            interaction.guild.id
+          );
+
+        await interaction.update(panel);
+
+        return;
+      }
+
+      // ------------------------------------------------------
+      // CANAL BOAS-VINDAS / SAIDA
+      // ------------------------------------------------------
+
+      if (
+        id ===
+          "cmds_config_welcome_channel" ||
+        id ===
+          "cmds_config_leave_channel"
+      ) {
+        if (
+          !(await checkAuthorized(interaction))
+        ) {
+          await interaction.reply({
+            content: "🚫 Sem permissao.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const type =
+          id ===
+          "cmds_config_welcome_channel"
+            ? "welcome"
+            : "leave";
+
+        const select =
+          new ChannelSelectMenuBuilder()
+            .setCustomId(
+              `cmds_channel_${type}`
+            )
+            .setPlaceholder(
+              "Escolha um canal"
+            )
+            .setChannelTypes(
+              ChannelType.GuildText
+            )
+            .setMinValues(1)
+            .setMaxValues(1);
+
+        const row =
+          new ActionRowBuilder<ChannelSelectMenuBuilder>()
+            .addComponents(select);
+
+        await interaction.reply({
+          content:
+            "Selecione o canal:",
+          components: [row],
+          flags: MessageFlags.Ephemeral,
+        });
+
+        return;
+      }
+
+      // ------------------------------------------------------
+      // CARGO AUTORIZADO
+      // ------------------------------------------------------
+
+      if (
+        id === "cmds_config_role"
+      ) {
+        if (
+          !(await checkAuthorized(interaction))
+        ) {
+          await interaction.reply({
+            content: "🚫 Sem permissao.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const select =
+          new RoleSelectMenuBuilder()
+            .setCustomId(
+              "cmds_role_authorized"
+            )
+            .setPlaceholder(
+              "Escolha o cargo autorizado"
+            )
+            .setMinValues(1)
+            .setMaxValues(1);
+
+        const row =
+          new ActionRowBuilder<RoleSelectMenuBuilder>()
+            .addComponents(select);
+
+        await interaction.reply({
+          content:
+            "Selecione o cargo que podera administrar o bot:",
+          components: [row],
+          flags: MessageFlags.Ephemeral,
+        });
+
+        return;
+      }
+
+      // ------------------------------------------------------
+      // SEGURANCA
+      // ------------------------------------------------------
+
+      if (id === "cmds_security") {
+        if (
+          !(await checkAuthorized(interaction))
+        ) {
+          await interaction.reply({
+            content: "🚫 Sem permissao.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const panel =
+          await buildSecurityPanel(
+            interaction.guild.id
+          );
+
+        await interaction.reply({
+          ...panel,
+          flags: MessageFlags.Ephemeral,
+        });
+
+        return;
+      }
+
+      // ------------------------------------------------------
+      // TOGGLES SEGURANCA
+      // ------------------------------------------------------
+
+      if (
+        [
+          "cmds_toggle_spam",
+          "cmds_toggle_flood",
+          "cmds_toggle_raid",
+          "cmds_toggle_age",
+          "cmds_toggle_punish",
+        ].includes(id)
+      ) {
+        if (
+          !(await checkAuthorized(interaction))
+        ) {
+          await interaction.reply({
+            content: "🚫 Sem permissao.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const settings =
+          await getGuildSettings(
+            interaction.guild.id
+          );
+
+        if (id === "cmds_toggle_spam") {
+          await updateGuildSettings(
+            interaction.guild.id,
+            {
+              antiSpamEnabled:
+                !settings.antiSpamEnabled,
+            }
+          );
+        }
+
+        if (id === "cmds_toggle_flood") {
+          await updateGuildSettings(
+            interaction.guild.id,
+            {
+              antiFloodEnabled:
+                !settings.antiFloodEnabled,
+            }
+          );
+        }
+
+        if (id === "cmds_toggle_raid") {
+          await updateGuildSettings(
+            interaction.guild.id,
+            {
+              antiRaidEnabled:
+                !settings.antiRaidEnabled,
+            }
+          );
+        }
+
+        if (id === "cmds_toggle_age") {
+          await updateGuildSettings(
+            interaction.guild.id,
+            {
+              accountAgeWarningEnabled:
+                !settings.accountAgeWarningEnabled,
+            }
+          );
+        }
+
+        if (
+          id === "cmds_toggle_punish"
+        ) {
+          await updateGuildSettings(
+            interaction.guild.id,
+            {
+              antiSpamAutoPunish:
+                !settings.antiSpamAutoPunish,
+            }
+          );
+        }
+
+        const panel =
+          await buildSecurityPanel(
+            interaction.guild.id
+          );
+
+        await interaction.update(panel);
+
+        return;
+      }
+
+      // ------------------------------------------------------
+      // LOGS
+      // ------------------------------------------------------
+
+      if (id === "cmds_logs") {
+        if (
+          !(await checkAuthorized(interaction))
+        ) {
+          await interaction.reply({
+            content: "🚫 Sem permissao.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const panel =
+          await buildLogsPanel(
+            interaction.guild.id
+          );
+
+        await interaction.reply({
+          ...panel,
+          flags: MessageFlags.Ephemeral,
+        });
+
+        return;
+      }
+
+      // ------------------------------------------------------
+      // ESCOLHER CANAL DE LOG
+      // ------------------------------------------------------
+
+      if (
+        id.startsWith("cmds_log_")
+      ) {
+        if (
+          !(await checkAuthorized(interaction))
+        ) {
+          await interaction.reply({
+            content: "🚫 Sem permissao.",
+            flags: MessageFlags.Ephemeral,
+          });
+          return;
+        }
+
+        const type =
+          id.replace("cmds_log_", "");
+
+        const valid = [
+          "voice",
+          "message",
+          "member",
+          "admin",
+          "security",
+        ];
+
+        if (!valid.includes(type)) return;
+
+        const select =
+          new ChannelSelectMenuBuilder()
+            .setCustomId(
+              `cmds_channel_${type}`
+            )
+            .setPlaceholder(
+              "Escolha o canal de log"
+            )
+            .setChannelTypes(
+              ChannelType.GuildText
+            )
+            .setMinValues(1)
+            .setMaxValues(1);
+
+        const row =
+          new ActionRowBuilder<ChannelSelectMenuBuilder>()
+            .addComponents(select);
+
+        await interaction.reply({
+          content:
+            "Selecione o canal que recebera estes logs:",
+          components: [row],
+          flags: MessageFlags.Ephemeral,
+        });
+
+        return;
+      }
+
+      // ------------------------------------------------------
+      // STATUS
+      // ------------------------------------------------------
+
+      if (id === "cmds_status") {
+        const settings =
+          await getGuildSettings(
+            interaction.guild.id
+          );
+
+        const protections = [
+          settings.antiSpamEnabled,
+          settings.antiFloodEnabled,
+          settings.antiRaidEnabled,
+          settings.accountAgeWarningEnabled,
+        ].filter(Boolean).length;
+
+        const embed =
+          new EmbedBuilder()
+            .setTitle(
+              "📊 Status do Bot-Normermo"
+            )
+            .addFields(
+              {
+                name: "Bot",
+                value: "🟢 Online",
+                inline: true,
+              },
+              {
+                name: "Ping",
+                value:
+                  `${interaction.client.ws.ping}ms`,
+                inline: true,
+              },
+              {
+                name: "Servidor",
+                value:
+                  interaction.guild.name,
+                inline: true,
+              },
+              {
+                name: "Membros",
+                value:
+                  `${interaction.guild.memberCount}`,
+                inline: true,
+              },
+              {
+                name:
+                  "Protecoes ativas",
+                value:
+                  `${protections}/4`,
+                inline: true,
+              }
+            )
+            .setTimestamp();
 
         await interaction.reply({
           embeds: [embed],
@@ -469,36 +1243,43 @@ export default {
         return;
       }
 
-      // =======================================================
+      // ------------------------------------------------------
       // UTILIDADES
-      // =======================================================
+      // ------------------------------------------------------
 
-      if (interaction.customId === "cmds_utils") {
+      if (id === "cmds_utils") {
         const row =
-          new ActionRowBuilder<ButtonBuilder>().addComponents(
-            new ButtonBuilder()
-              .setCustomId("cmds_util_avatar")
-              .setLabel("Ver avatar")
-              .setEmoji("🔎")
-              .setStyle(ButtonStyle.Primary),
+          new ActionRowBuilder<ButtonBuilder>()
+            .addComponents(
+              new ButtonBuilder()
+                .setCustomId(
+                  "cmds_util_avatar"
+                )
+                .setLabel("Ver avatar")
+                .setEmoji("🔎")
+                .setStyle(
+                  ButtonStyle.Primary
+                ),
 
-            new ButtonBuilder()
-              .setCustomId("cmds_util_clear")
-              .setLabel("Limpar mensagens")
-              .setEmoji("🧹")
-              .setStyle(ButtonStyle.Danger)
-          );
+              new ButtonBuilder()
+                .setCustomId(
+                  "cmds_util_clear"
+                )
+                .setLabel(
+                  "Limpar mensagens"
+                )
+                .setEmoji("🧹")
+                .setStyle(
+                  ButtonStyle.Danger
+                )
+            );
 
-        const embed = new EmbedBuilder()
-          .setTitle("Utilidades")
-          .setDescription(
-            [
-              "Escolha uma ferramenta abaixo.",
-              "",
-              "**Ver avatar** - mostra o avatar de qualquer usuario.",
-              "**Limpar mensagens** - remove de 1 a 100 mensagens recentes.",
-            ].join("\n")
-          );
+        const embed =
+          new EmbedBuilder()
+            .setTitle("🔧 Utilidades")
+            .setDescription(
+              "Escolha uma ferramenta."
+            );
 
         await interaction.reply({
           embeds: [embed],
@@ -509,14 +1290,18 @@ export default {
         return;
       }
 
-      // =======================================================
-      // VER AVATAR
-      // =======================================================
+      // ------------------------------------------------------
+      // AVATAR
+      // ------------------------------------------------------
 
-      if (interaction.customId === "cmds_util_avatar") {
-        const seletor =
+      if (
+        id === "cmds_util_avatar"
+      ) {
+        const select =
           new UserSelectMenuBuilder()
-            .setCustomId("cmds_avatar_select")
+            .setCustomId(
+              "cmds_avatar_select"
+            )
             .setPlaceholder(
               "Selecione um usuario"
             )
@@ -525,11 +1310,11 @@ export default {
 
         const row =
           new ActionRowBuilder<UserSelectMenuBuilder>()
-            .addComponents(seletor);
+            .addComponents(select);
 
         await interaction.reply({
           content:
-            "Selecione o usuario que deseja visualizar:",
+            "Selecione o usuario:",
           components: [row],
           flags: MessageFlags.Ephemeral,
         });
@@ -537,17 +1322,15 @@ export default {
         return;
       }
 
-      // =======================================================
-      // LIMPAR MENSAGENS
-      // =======================================================
+      // ------------------------------------------------------
+      // CLEAR
+      // ------------------------------------------------------
 
-      if (interaction.customId === "cmds_util_clear") {
+      if (
+        id === "cmds_util_clear"
+      ) {
         const member =
-          interaction.member instanceof GuildMember
-            ? interaction.member
-            : await interaction.guild.members
-                .fetch(interaction.user.id)
-                .catch(() => null);
+          await getMember(interaction);
 
         if (
           !member ||
@@ -557,7 +1340,7 @@ export default {
         ) {
           await interaction.reply({
             content:
-              "Voce precisa da permissao Gerenciar Mensagens para usar esta ferramenta.",
+              "🚫 Voce precisa da permissao Gerenciar Mensagens.",
             flags: MessageFlags.Ephemeral,
           });
           return;
@@ -565,10 +1348,18 @@ export default {
 
         const input =
           new TextInputBuilder()
-            .setCustomId("cmds_clear_amount")
-            .setLabel("Quantidade de mensagens")
-            .setPlaceholder("Exemplo: 25")
-            .setStyle(TextInputStyle.Short)
+            .setCustomId(
+              "cmds_clear_amount"
+            )
+            .setLabel(
+              "Quantidade de mensagens"
+            )
+            .setPlaceholder(
+              "Exemplo: 25"
+            )
+            .setStyle(
+              TextInputStyle.Short
+            )
             .setRequired(true)
             .setMinLength(1)
             .setMaxLength(3);
@@ -579,38 +1370,46 @@ export default {
 
         const modal =
           new ModalBuilder()
-            .setCustomId("cmds_clear_modal")
-            .setTitle("Limpar mensagens")
+            .setCustomId(
+              "cmds_clear_modal"
+            )
+            .setTitle(
+              "Limpar mensagens"
+            )
             .addComponents(row);
 
-        await interaction.showModal(modal);
+        await interaction.showModal(
+          modal
+        );
 
         return;
       }
 
-      // =======================================================
+      // ------------------------------------------------------
       // AJUDA
-      // =======================================================
+      // ------------------------------------------------------
 
-      if (interaction.customId === "cmds_help") {
-        const embed = new EmbedBuilder()
-          .setTitle("Ajuda | Bot-Normermo")
-          .setDescription(
-            [
-              "Voce pode utilizar este painel ou os slash commands.",
-              "",
-              "**Comandos:**",
-              "`/setup` - configuracao inicial",
-              "`/config` - configuracoes",
-              "`/logs` - visualizar logs",
-              "`/status` - status do bot",
-              "`/security` - seguranca",
-              "`/zoom` - visualizar avatar",
-              "`/clear` - apagar mensagens",
-              "`/help` - ajuda",
-              "`/cmds` - publicar este painel",
-            ].join("\n")
-          );
+      if (id === "cmds_help") {
+        const embed =
+          new EmbedBuilder()
+            .setTitle(
+              "❓ Ajuda | Bot-Normermo"
+            )
+            .setDescription(
+              [
+                "Use o painel ou os slash commands.",
+                "",
+                "`/setup` - configuracao inicial",
+                "`/config` - configuracoes avancadas",
+                "`/logs` - canais de logs",
+                "`/status` - status",
+                "`/security` - seguranca",
+                "`/zoom` - avatar",
+                "`/clear` - limpar mensagens",
+                "`/help` - ajuda",
+                "`/cmds` - publicar painel",
+              ].join("\n")
+            );
 
         await interaction.reply({
           embeds: [embed],
@@ -621,20 +1420,23 @@ export default {
       }
     } catch (error) {
       console.error(
-        "[interactionCreate] Erro no painel /cmds:",
+        "[interactionCreate] Erro no painel:",
         error
       );
 
-      if (interaction.replied || interaction.deferred) {
+      if (
+        interaction.replied ||
+        interaction.deferred
+      ) {
         await interaction.followUp({
           content:
-            "Ocorreu um erro ao usar o painel.",
+            "❌ Ocorreu um erro ao usar o painel.",
           flags: MessageFlags.Ephemeral,
         });
       } else {
         await interaction.reply({
           content:
-            "Ocorreu um erro ao usar o painel.",
+            "❌ Ocorreu um erro ao usar o painel.",
           flags: MessageFlags.Ephemeral,
         });
       }
