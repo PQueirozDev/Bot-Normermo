@@ -38,7 +38,7 @@ const command: Command = {
     // =========================================================
 
     const embed = new EmbedBuilder()
-      .setTitle("BOT-NORMERMO | Central de Comandos")
+      .setTitle("Capivarudo | Central de Comandos")
       .setDescription(
         [
           "Use os botoes abaixo para acessar as funcoes do bot.",
@@ -65,7 +65,7 @@ const command: Command = {
         ].join("\n")
       )
       .setFooter({
-        text: "Bot-Normermo | Painel de gerenciamento",
+        text: "Capivarudo | Painel de gerenciamento",
       })
       .setTimestamp();
 

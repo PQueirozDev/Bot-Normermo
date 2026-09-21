@@ -67,7 +67,7 @@ async function buildConfigPanel(guildId: string) {
   const embed = new EmbedBuilder()
     .setTitle("⚙️ Configuracao")
     .setDescription(
-      "Configure os principais recursos do Bot-Normermo."
+      "Configure os principais recursos do Capivarudo."
     )
     .addFields(
       {
@@ -1199,7 +1199,7 @@ export default {
         const embed =
           new EmbedBuilder()
             .setTitle(
-              "📊 Status do Bot-Normermo"
+              "📊 Status do Capivarudo"
             )
             .addFields(
               {
@@ -1393,7 +1393,7 @@ export default {
         const embed =
           new EmbedBuilder()
             .setTitle(
-              "❓ Ajuda | Bot-Normermo"
+              "❓ Ajuda | Capivarudo"
             )
             .setDescription(
               [
