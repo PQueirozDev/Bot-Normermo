@@ -4,9 +4,11 @@ import {
   ButtonStyle,
   ChatInputCommandInteraction,
   EmbedBuilder,
+  MessageFlags,
   PermissionFlagsBits,
   SlashCommandBuilder,
 } from "discord.js";
+
 import { Command } from "../types";
 
 const command: Command = {
@@ -25,10 +27,15 @@ const command: Command = {
     ) {
       await interaction.reply({
         content: "Nao consigo criar o painel neste canal.",
-        ephemeral: true,
+        flags: MessageFlags.Ephemeral,
       });
+
       return;
     }
+
+    // =========================================================
+    // PAINEL PRINCIPAL
+    // =========================================================
 
     const embed = new EmbedBuilder()
       .setTitle("BOT-NORMERMO | Central de Comandos")
@@ -36,12 +43,23 @@ const command: Command = {
         [
           "Use os botoes abaixo para acessar as funcoes do bot.",
           "",
-          "**Configuracao** - recursos gerais do servidor",
-          "**Seguranca** - protecoes e monitoramento",
-          "**Logs** - configuracao dos registros",
-          "**Status** - informacoes do bot",
-          "**Utilidades** - ferramentas rapidas",
-          "**Ajuda** - comandos disponiveis",
+          "⚙️ **Configuracao**",
+          "Configure os principais recursos do servidor.",
+          "",
+          "🛡️ **Seguranca**",
+          "Gerencie as protecoes e o monitoramento.",
+          "",
+          "📋 **Logs**",
+          "Visualize e configure os registros do servidor.",
+          "",
+          "📊 **Status**",
+          "Veja informacoes sobre o bot e o servidor.",
+          "",
+          "🔧 **Utilidades**",
+          "Acesse ferramentas como avatar e limpeza de mensagens.",
+          "",
+          "❓ **Ajuda**",
+          "Veja os comandos e recursos disponiveis.",
           "",
           "Os comandos tradicionais com `/` continuam funcionando.",
         ].join("\n")
@@ -50,6 +68,10 @@ const command: Command = {
         text: "Bot-Normermo | Painel de gerenciamento",
       })
       .setTimestamp();
+
+    // =========================================================
+    // PRIMEIRA LINHA
+    // =========================================================
 
     const primeiraLinha =
       new ActionRowBuilder<ButtonBuilder>().addComponents(
@@ -78,6 +100,10 @@ const command: Command = {
           .setStyle(ButtonStyle.Success)
       );
 
+    // =========================================================
+    // SEGUNDA LINHA
+    // =========================================================
+
     const segundaLinha =
       new ActionRowBuilder<ButtonBuilder>().addComponents(
         new ButtonBuilder()
@@ -93,14 +119,19 @@ const command: Command = {
           .setStyle(ButtonStyle.Secondary)
       );
 
+    // =========================================================
+    // PUBLICA O PAINEL
+    // =========================================================
+
     await interaction.channel.send({
       embeds: [embed],
       components: [primeiraLinha, segundaLinha],
     });
 
+    // Somente o administrador que executou /cmds ve isso.
     await interaction.reply({
       content: "Painel criado com sucesso neste canal.",
-      ephemeral: true,
+      flags: MessageFlags.Ephemeral,
     });
   },
 };
