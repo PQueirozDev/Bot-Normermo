@@ -64,47 +64,104 @@ function executarFFmpeg(args: string[]) {
   });
 }
 
+function linkPermitido(url: string) {
+  try {
+    const parsed = new URL(url);
+
+    if (parsed.protocol !== "https:") return false;
+
+    const host = parsed.hostname.toLowerCase();
+
+    return (
+      host === "cdn.discordapp.com" ||
+      host === "media.discordapp.net" ||
+      host.endsWith(".discordapp.com") ||
+      host.endsWith(".discordapp.net")
+    );
+  } catch {
+    return false;
+  }
+}
+
 const command: Command = {
   data: new SlashCommandBuilder()
     .setName("gif")
     .setDescription("Adiciona uma frase em cima de um GIF.")
-    .addAttachmentOption((option) =>
-      option
-        .setName("arquivo")
-        .setDescription("GIF que sera editado")
-        .setRequired(true)
-    )
     .addStringOption((option) =>
       option
         .setName("texto")
         .setDescription("Texto que aparecera em cima do GIF")
         .setRequired(true)
         .setMaxLength(180)
+    )
+    .addAttachmentOption((option) =>
+      option
+        .setName("arquivo")
+        .setDescription("Envie um GIF")
+        .setRequired(false)
+    )
+    .addStringOption((option) =>
+      option
+        .setName("link")
+        .setDescription("Cole o link de um GIF enviado no Discord")
+        .setRequired(false)
     ),
 
   async execute(interaction: ChatInputCommandInteraction) {
     await interaction.deferReply();
 
-    const arquivo = interaction.options.getAttachment("arquivo", true);
     const texto = interaction.options.getString("texto", true);
+    const arquivo = interaction.options.getAttachment("arquivo");
+    const link = interaction.options.getString("link");
 
-    const nome = arquivo.name?.toLowerCase() ?? "";
-
-    if (
-      arquivo.contentType !== "image/gif" &&
-      !nome.endsWith(".gif")
-    ) {
+    if (!arquivo && !link) {
       await interaction.editReply(
-        "❌ O arquivo precisa ser um GIF."
+        "❌ Envie um GIF em `arquivo` ou cole o link dele em `link`."
       );
       return;
     }
 
-    if (arquivo.size > 15 * 1024 * 1024) {
+    if (arquivo && link) {
       await interaction.editReply(
-        "❌ Esse GIF e muito grande. Envie um GIF de ate 15 MB."
+        "❌ Use apenas uma opcao: `arquivo` OU `link`."
       );
       return;
+    }
+
+    let gifUrl: string;
+
+    if (arquivo) {
+      const nome = arquivo.name?.toLowerCase() ?? "";
+
+      if (
+        arquivo.contentType !== "image/gif" &&
+        !nome.endsWith(".gif")
+      ) {
+        await interaction.editReply(
+          "❌ O arquivo precisa ser um GIF."
+        );
+        return;
+      }
+
+      if (arquivo.size > 15 * 1024 * 1024) {
+        await interaction.editReply(
+          "❌ Esse GIF e muito grande. Envie um GIF de ate 15 MB."
+        );
+        return;
+      }
+
+      gifUrl = arquivo.url;
+    } else {
+      const url = link!.trim();
+
+      if (!linkPermitido(url)) {
+        await interaction.editReply(
+          "❌ Link invalido. Envie o GIF no Discord, use `Copiar link` e cole o link aqui."
+        );
+        return;
+      }
+
+      gifUrl = url;
     }
 
     const pastaTemp = await fs.mkdtemp(
@@ -116,13 +173,28 @@ const command: Command = {
     const saida = path.join(pastaTemp, "resultado.gif");
 
     try {
-      const resposta = await fetch(arquivo.url);
+      const resposta = await fetch(gifUrl);
 
       if (!resposta.ok) {
-        throw new Error("Nao foi possivel baixar o GIF.");
+        throw new Error(`Falha ao baixar GIF: HTTP ${resposta.status}`);
       }
 
-      const buffer = Buffer.from(await resposta.arrayBuffer());
+      const contentType = resposta.headers.get("content-type") ?? "";
+
+      if (!contentType.toLowerCase().includes("gif")) {
+        throw new Error("O link nao aponta para um GIF.");
+      }
+
+      const arrayBuffer = await resposta.arrayBuffer();
+
+      if (arrayBuffer.byteLength > 15 * 1024 * 1024) {
+        await interaction.editReply(
+          "❌ Esse GIF e muito grande. O limite e 15 MB."
+        );
+        return;
+      }
+
+      const buffer = Buffer.from(arrayBuffer);
 
       await fs.writeFile(entrada, buffer);
 
@@ -151,6 +223,7 @@ const command: Command = {
       const linhas = quebrarTexto(texto, maxChars);
 
       const alturaLinha = Math.round(tamanhoFonte * 1.15);
+
       const alturaTopo = Math.max(
         110,
         linhas.length * alturaLinha + 45
@@ -166,9 +239,13 @@ const command: Command = {
         .join("");
 
       const svg = `
-        <svg width="${larguraFinal}" height="${alturaTopo}"
-             xmlns="http://www.w3.org/2000/svg">
+        <svg
+          width="${larguraFinal}"
+          height="${alturaTopo}"
+          xmlns="http://www.w3.org/2000/svg"
+        >
           <rect width="100%" height="100%" fill="white"/>
+
           <text
             x="50%"
             y="${Math.round(
@@ -180,7 +257,8 @@ const command: Command = {
             font-family="Arial, sans-serif"
             font-size="${tamanhoFonte}"
             font-weight="900"
-            fill="black">
+            fill="black"
+          >
             ${spans}
           </text>
         </svg>
@@ -226,7 +304,7 @@ const command: Command = {
       console.error("[GIF]", error);
 
       await interaction.editReply(
-        "❌ Nao consegui editar esse GIF."
+        "❌ Nao consegui editar esse GIF. Confira se o link realmente aponta para um GIF enviado no Discord."
       );
     } finally {
       await fs.rm(pastaTemp, {
