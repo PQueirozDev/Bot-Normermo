@@ -1,4 +1,4 @@
-﻿import {
+import {
   AttachmentBuilder,
   ChatInputCommandInteraction,
   SlashCommandBuilder,
@@ -184,7 +184,15 @@ async function obterGifDaMensagem(
     }
   }
 
-  // 3. Procura URLs no texto da mensagem
+  // 3. Procura video animado em embeds (Klipy, Tenor e similares)
+  for (const embed of mensagem.embeds) {
+    if (embed.video?.url) {
+      console.log("[GIF] Video encontrado no embed:", embed.video.url);
+      return embed.video.url;
+    }
+  }
+
+  // 4. Procura URLs no texto da mensagem
   const urls = mensagem.content.match(
     /https?:\/\/[^\s<>]+/g
   );
