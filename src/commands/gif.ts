@@ -342,25 +342,23 @@ async function gerarGif(
   alturaTopo: number
 ): Promise<void> {
   const filtro =
-    `[0:v]fps=${config.fps},` +
-    `scale='min(${config.largura},iw)':-2:flags=lanczos,` +
-    `pad=iw:ih+${alturaTopo}:0:${alturaTopo}:color=white[base];` +
-    `[1:v][base]scale2ref=w=main_w:h=${alturaTopo}[top][base2];` +
-    `[base2][top]overlay=0:0:shortest=1[merged];` +
-    `[merged]split[a][b];` +
+    `[0:v]fps=${config.fps},scale=${config.largura}:-2:flags=lanczos[gif];` +
+    `[1:v]scale=${config.largura}:${alturaTopo}:flags=lanczos[top];` +
+    `[top][gif]vstack=inputs=2[stack];` +
+    `[stack]split[a][b];` +
     `[a]palettegen=max_colors=${config.cores}:stats_mode=diff[p];` +
-    `[b][p]paletteuse=dither=bayer:bayer_scale=5`;
+    `[b][p]paletteuse=dither=bayer:bayer_scale=5[out]`;
 
   await executarFFmpeg([
     "-y",
     "-i",
     entrada,
-    "-loop",
-    "1",
     "-i",
     topo,
     "-filter_complex",
     filtro,
+    "-map",
+    "[out]",
     "-an",
     "-loop",
     "0",
