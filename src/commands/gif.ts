@@ -679,7 +679,7 @@ const command: Command = {
         TARGET_SIZE_BYTES
       ) {
         await interaction.editReply(
-          "❌ O GIF continuou muito grande mesmo depois da compressao."
+          "âŒ O GIF continuou muito grande mesmo depois da compressao."
         );
 
         return;
@@ -708,7 +708,7 @@ const command: Command = {
           : "Erro desconhecido";
 
       await interaction.editReply(
-        `❌ Nao consegui processar esse GIF.\n\n**Motivo:** ${motivo}\n\nPara GIFs enviados no Discord, use **Copiar link da mensagem** e cole no campo \`link\`.`
+        `âŒ Nao consegui processar esse GIF.\n\n**Motivo:** ${motivo}\n\nPara GIFs enviados no Discord, use **Copiar link da mensagem** e cole no campo \`link\`.`
       );
     } finally {
       await fs.rm(
