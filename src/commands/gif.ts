@@ -21,6 +21,11 @@ type Compressao = {
   cores: number;
 };
 
+type MidiaBaixada = {
+  buffer: Buffer;
+  tipo: "gif" | "video";
+};
+
 function escapeXml(texto: string): string {
   return texto
     .replace(/&/g, "&amp;")
@@ -232,30 +237,23 @@ async function fetchComTimeout(
   }
 }
 
-async function baixarGif(urlOriginal: string): Promise<Buffer> {
+async function baixarMidia(urlOriginal: string): Promise<MidiaBaixada> {
   const url = limparLink(urlOriginal);
-
   const parsed = new URL(url);
 
-  if (
-    parsed.protocol !== "https:" &&
-    parsed.protocol !== "http:"
-  ) {
-    throw new Error(
-      "O endereco do GIF nao e valido."
-    );
+  if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+    throw new Error("O endereco da midia nao e valido.");
   }
 
   const tentativas: Array<Record<string, string>> = [
     {
       "User-Agent":
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/140.0 Safari/537.36",
-      Accept:
-        "image/gif,image/webp,image/*,*/*;q=0.8",
+      Accept: "image/gif,video/mp4,video/webm,image/webp,image/*,video/*,*/*;q=0.8",
     },
     {
       "User-Agent": "Discordbot/2.0",
-      Accept: "image/gif,image/*,*/*",
+      Accept: "image/gif,video/mp4,video/*,image/*,*/*",
     },
     {
       "User-Agent": "Mozilla/5.0",
@@ -268,70 +266,40 @@ async function baixarGif(urlOriginal: string): Promise<Buffer> {
 
   for (const headers of tentativas) {
     try {
-      const resposta = await fetchComTimeout(
-        url,
-        headers
-      );
+      const resposta = await fetchComTimeout(url, headers);
 
       if (!resposta.ok) {
         ultimoErro = `HTTP ${resposta.status}`;
         continue;
       }
 
-      const tamanhoInformado = Number(
-        resposta.headers.get("content-length") ||
-          "0"
-      );
-
-      if (
-        tamanhoInformado >
-        MAX_DOWNLOAD_BYTES
-      ) {
-        throw new Error(
-          "O GIF original ultrapassa 100 MB."
-        );
+      const tamanhoInformado = Number(resposta.headers.get("content-length") || "0");
+      if (tamanhoInformado > MAX_DOWNLOAD_BYTES) {
+        throw new Error("A midia original ultrapassa 100 MB.");
       }
 
-      const arrayBuffer =
-        await resposta.arrayBuffer();
-
-      if (
-        arrayBuffer.byteLength >
-        MAX_DOWNLOAD_BYTES
-      ) {
-        throw new Error(
-          "O GIF original ultrapassa 100 MB."
-        );
+      const arrayBuffer = await resposta.arrayBuffer();
+      if (arrayBuffer.byteLength > MAX_DOWNLOAD_BYTES) {
+        throw new Error("A midia original ultrapassa 100 MB.");
       }
 
-      const buffer =
-        Buffer.from(arrayBuffer);
+      const buffer = Buffer.from(arrayBuffer);
+      const assinaturaGif = buffer.subarray(0, 6).toString("ascii");
+      const ehGif = assinaturaGif === "GIF87a" || assinaturaGif === "GIF89a";
+      const contentType = (resposta.headers.get("content-type") || "").toLowerCase();
+      const ehMp4 = buffer.length >= 12 && buffer.subarray(4, 8).toString("ascii") === "ftyp";
+      const ehVideo = ehMp4 || contentType.startsWith("video/");
 
-      const assinatura = buffer
-        .subarray(0, 6)
-        .toString("ascii");
+      if (ehGif) return { buffer, tipo: "gif" };
+      if (ehVideo) return { buffer, tipo: "video" };
 
-      if (
-        assinatura !== "GIF87a" &&
-        assinatura !== "GIF89a"
-      ) {
-        ultimoErro =
-          "o endereco nao retornou um GIF real";
-        continue;
-      }
-
-      return buffer;
+      ultimoErro = `o endereco retornou ${contentType || "um formato desconhecido"}, nao um GIF/video`;
     } catch (error) {
-      ultimoErro =
-        error instanceof Error
-          ? error.message
-          : String(error);
+      ultimoErro = error instanceof Error ? error.message : String(error);
     }
   }
 
-  throw new Error(
-    `Nao consegui baixar o GIF. Ultimo erro: ${ultimoErro}.`
-  );
+  throw new Error(`Nao consegui baixar a midia. Ultimo erro: ${ultimoErro}.`);
 }
 
 async function gerarGif(
@@ -416,7 +384,7 @@ const command: Command = {
       )
     );
 
-    const entrada = path.join(
+    let entrada = path.join(
       pasta,
       "entrada.gif"
     );
@@ -454,31 +422,27 @@ const command: Command = {
         `[GIF] URL encontrada: ${urlGif}`
       );
 
-      const buffer =
-        await baixarGif(urlGif);
+      const midia = await baixarMidia(urlGif);
+      const buffer = midia.buffer;
 
-      await fs.writeFile(
-        entrada,
-        buffer
+      entrada = path.join(
+        pasta,
+        midia.tipo === "video" ? "entrada.mp4" : "entrada.gif"
       );
 
-      const metadata = await sharp(
-        buffer,
-        {
-          animated: true,
-        }
-      ).metadata();
+      await fs.writeFile(entrada, buffer);
 
-      if (!metadata.width) {
-        throw new Error(
-          "Nao consegui identificar o tamanho do GIF."
-        );
+      let larguraBase = 800;
+
+      if (midia.tipo === "gif") {
+        const metadata = await sharp(buffer, { animated: true }).metadata();
+        if (!metadata.width) {
+          throw new Error("Nao consegui identificar o tamanho do GIF.");
+        }
+        larguraBase = Math.min(metadata.width, 800);
       }
 
-      const larguraBase = Math.min(
-        metadata.width,
-        800
-      );
+      console.log(`[GIF] Midia detectada: ${midia.tipo} | largura base ${larguraBase}px`);
 
       const tamanhoFonte = Math.max(
         22,
@@ -552,7 +516,7 @@ const command: Command = {
     y="${inicioY}"
     text-anchor="middle"
     dominant-baseline="middle"
-    font-family="Arial, sans-serif"
+    font-family="DejaVu Sans, sans-serif"
     font-size="${tamanhoFonte}"
     font-weight="900"
     fill="black"
@@ -679,7 +643,7 @@ const command: Command = {
         TARGET_SIZE_BYTES
       ) {
         await interaction.editReply(
-          "âŒ O GIF continuou muito grande mesmo depois da compressao."
+          "❌ O GIF continuou muito grande mesmo depois da compressao."
         );
 
         return;
@@ -708,7 +672,7 @@ const command: Command = {
           : "Erro desconhecido";
 
       await interaction.editReply(
-        `âŒ Nao consegui processar esse GIF.\n\n**Motivo:** ${motivo}\n\nPara GIFs enviados no Discord, use **Copiar link da mensagem** e cole no campo \`link\`.`
+        `❌ Nao consegui processar esse GIF.\n\n**Motivo:** ${motivo}\n\nPara GIFs enviados no Discord, use **Copiar link da mensagem** e cole no campo \`link\`.`
       );
     } finally {
       await fs.rm(
