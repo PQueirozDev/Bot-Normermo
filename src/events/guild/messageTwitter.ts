@@ -11,7 +11,7 @@ export default {
     if (!xLinkRegex.test(message.content)) return;
 
     await message.reply(
-      "Para de postar hl q tu vai famoso nao seu bosta"
+     "Voce nao vai ficar famoso se postar hl em 2026 nao, pode ficar tranquilo"
     );
   },
 };
