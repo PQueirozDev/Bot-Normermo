@@ -31,10 +31,19 @@ export function loadEvents(client: Client): void {
         continue;
       }
 
+      // Envolve cada handler: um erro (ex.: timeout do banco) é logado em vez de derrubar o processo.
+      const safeExecute = async (...args: unknown[]) => {
+        try {
+          await event.execute(...args);
+        } catch (error) {
+          console.error(`[event:${event.name}] Erro ao executar handler (${entry}):`, error);
+        }
+      };
+
       if (event.once) {
-        client.once(event.name, (...args) => event.execute(...args));
+        client.once(event.name, safeExecute);
       } else {
-        client.on(event.name, (...args) => event.execute(...args));
+        client.on(event.name, safeExecute);
       }
       count++;
     }
